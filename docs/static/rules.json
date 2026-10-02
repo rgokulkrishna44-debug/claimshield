@@ -1,0 +1,118 @@
+{
+  "version": "2026-10-03",
+  "sources": {
+    "lists": "IRDAI circular IRDAI/HLT/REG/CIR/176/09/2019 dated 27 Sep 2019 (Guidelines on Standardization in Health Insurance), Lists I to IV",
+    "pd": "IRDAI circular on proportionate deductions, June 2020 (in force for policies from 1 Oct 2020)",
+    "master_health": "IRDAI Master Circular on Health Insurance Business, 29 May 2024",
+    "master_pphi": "IRDAI Master Circular on Protection of Policyholders' Interests, 5 Sep 2024"
+  },
+  "notes": "Matching: whole words, case insensitive, an optional plural s. A trailing * means prefix match. Objects with re are regular expressions with a weight. The longest term wins, so face mask (List II) beats mask (List I).",
+  "groups": [
+    {
+      "id": "list_i",
+      "kind": "not_payable",
+      "rule": "R_LIST_I",
+      "terms": [
+        "baby food", "baby utilit*", "beauty", "belt", "brace", "knee brace", "buds", "ear bud",
+        "cold pack", "hot pack", "carry bag", "email", "internet", "food charge", "leggings",
+        "laundry", "mineral water", "sanitary pad", "sanitary napkin", "telephone", "phone charge",
+        "guest service", "crepe bandage", "diaper", "eyelet collar", "sling", "armsling", "arm sling",
+        {"re": "donor.{0,40}(group|cross)|(group|cross).{0,40}donor", "w": 30, "label": "donor blood grouping"},
+        "television", "tv charge", "tv rent", "surcharge", "attendant", "extra diet", "extra diet charge",
+        "birth certificate", "certificate charge", "certificate fee", "courier", "conveyance",
+        "medical certificate", "medical record", "photocop*", "xerox", "mortuary", "walking aid", "walker",
+        {"re": "oxygen cylinder.{0,30}(home|outside)|(home|outside).{0,30}oxygen cylinder", "w": 25, "label": "oxygen cylinder for home use"},
+        "spacer", "spirometer", "spirometre", "nebulizer kit", "nebuliser kit", "steam inhaler",
+        "thermometer", "cervical collar", "splint", "diabetic foot wear", "diabetic footwear",
+        "knee immobil*", "shoulder immobil*", "lumbo sacral", "lumbosacral", "nimbus", "water bed",
+        "air bed", "airbed", "ambulance collar", "ambulance equipment", "abdominal binder",
+        "private nurse", "special nursing", "sugar free", "toiletr*", "ecg electrode", "glove",
+        "nebulisation kit", "nebulization kit", "delivery kit", "orthokit", "ortho kit", "recovery kit",
+        "kidney tray", "mask", "ounce glass", "oxygen mask", "o2 mask", "pelvic traction", "pan can",
+        "trolley cover", "trolly cover", "urometer", "urine jug", "vasofix"
+      ]
+    },
+    {
+      "id": "service_charge",
+      "kind": "not_payable_if_nursing",
+      "rule": "R_LIST_I",
+      "terms": ["service charge"]
+    },
+    {
+      "id": "ambulance",
+      "kind": "ambulance",
+      "rule": "R_LIST_I",
+      "terms": ["ambulance", "ambulance charge"]
+    },
+    {
+      "id": "toiletry_check",
+      "kind": "check",
+      "rule": "R_LIST_I",
+      "terms": ["cream", "powder", "lotion"]
+    },
+    {
+      "id": "list_ii",
+      "kind": "subsumed",
+      "where": "room",
+      "rule": "R_LIST_II",
+      "terms": [
+        "baby charge", "hand wash", "handwash", "shoe cover", "surgical cap", "head cap", "disposable cap",
+        "bouffant cap", "cap charge", "cradle", "comb", "eau de cologne", "eau-de-cologne", "cologne",
+        "room freshener", "room freshner", "air freshener", "foot cover", "gown", "slipper",
+        "tissue paper", "tissue roll", "tooth paste", "toothpaste", "tooth brush", "toothbrush",
+        "bed pan", "bedpan", "face mask", "flexi mask", "hand holder", "sputum cup", "disinfectant lotion",
+        "luxury tax", "hvac", "housekeeping", "house keeping", "air condition*", "ac charge",
+        "im iv injection", "iv injection charge", "im injection charge", "injection administration",
+        "clean sheet", "bed sheet", "blanket", "warmer blanket", "admission kit", "diabetic chart",
+        "documentation charge", "administrative expense", "administrative charge", "admin charge",
+        "discharge procedure", "discharge charge", "daily chart", "entrance pass", "visitor",
+        "prescription on discharge", "discharge prescription", "file opening", "file charge",
+        "incidental", "misc*", "sundry", "identification band", "id band", "name tag", "wrist band",
+        "wristband", "pulse oximeter", "pulseoximeter", "pulseoxymeter", "pulse oxymeter"
+      ]
+    },
+    {
+      "id": "list_iii",
+      "kind": "subsumed",
+      "where": "procedure",
+      "rule": "R_LIST_III",
+      "terms": [
+        "hair removal", "razor", "eye pad", "eye shield", "eye sheild", "camera cover", "dvd",
+        "cd charge", "gauze", "gause", "theatre booking", "theater booking", "ward booking",
+        "ot booking", "arthroscopy instrument", "endoscopy instrument", "microscope cover",
+        "surgical blade", "harmonic scalpel", "shaver", "surgical drill", "eye kit", "eye drape",
+        "x-ray film", "xray film", "x ray film", "boyles apparatus", "boyle", "cotton", "surgical tape",
+        "micropore", "apron", "tourniquet", "torniquet", "orthobundle", "ortho bundle", "gynaec bundle"
+      ]
+    },
+    {
+      "id": "list_iv",
+      "kind": "subsumed",
+      "where": "treatment",
+      "rule": "R_LIST_IV",
+      "terms": [
+        "admission charge", "admission fee", "registration charge", "registration fee",
+        "urine container", "blood reservation", "ante natal booking", "antenatal booking", "bipap",
+        "cpap", "capd", "infusion pump", "hydrogen peroxide", "spirit", "disinfectant",
+        "nutrition planning", "dietician", "dietitian", "diet charge", "hiv kit", "mouthwash",
+        "mouth wash", "lozenge", "mouth paint", "vaccination", "alcohol swab", "scrub solution",
+        "sterillium", "glucometer", "glucose strip", "glucometer strip", "urine bag"
+      ]
+    }
+  ],
+  "categories": ["room", "icu", "doctor", "nursing", "procedure", "pharmacy", "consumables", "implants", "diagnostics", "other"],
+  "associated": ["doctor", "nursing", "procedure", "other"],
+  "no_pd": ["pharmacy", "consumables", "implants", "diagnostics", "icu"],
+  "category_order": ["icu", "room", "implants", "procedure", "nursing", "doctor", "consumables", "diagnostics", "pharmacy"],
+  "category_keywords": {
+    "icu": ["icu", "iccu", "nicu", "picu", "intensive care", "hdu", "ccu"],
+    "room": ["room", "ward", "bed charge", "accommodation", "boarding"],
+    "doctor": ["consult*", "doctor", "physician", "visit", "specialist", "anaesthetist", "anesthetist", "rmo", "professional fee"],
+    "nursing": ["nursing"],
+    "procedure": ["surgeon", "surgery", "operation", "ot charge", "theatre", "theater", "procedure", "anaesthesia", "anesthesia", "package"],
+    "implants": ["implant", "stent", "lens", "iol", "prosthe*", "pacemaker", "plate", "screw", "mesh", "valve"],
+    "diagnostics": ["lab", "test", "x-ray", "xray", "scan", "mri", "ct", "ultrasound", "usg", "ecg", "echo", "blood", "patholog*", "radiolog*", "culture", "cbc", "biopsy"],
+    "pharmacy": ["pharmacy", "medicine", "drug", "tablet", "tab", "cap", "capsule", "syp", "syrup", "injection", "inj", "iv fluid", "antibiotic", "ointment", "drops"],
+    "consumables": ["consumable", "syringe", "cannula", "catheter", "dressing", "suture", "bandage", "disposable"]
+  }
+}

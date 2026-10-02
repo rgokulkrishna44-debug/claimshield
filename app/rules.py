@@ -1,125 +1,90 @@
 """IRDAI rule base used by the audit engine.
 
-Everything here is fixed data, not AI output, so the bill audit is repeatable and explainable.
-Sources (verify against the latest IRDAI text before relying on them for a real claim):
-  - IRDAI Guidelines on Standardization in Health Insurance, Annexure: List I (items not payable),
-    Lists II, III, IV (items subsumed into room, procedure and treatment charges).
-  - IRDAI guidance on proportionate deduction (June 2020): no proportionate deduction on pharmacy,
-    consumables, implants, medical devices, diagnostics, or ICU charges.
-  - IRDAI Master Circular on Health Insurance (29 May 2024): cashless decision within 1 hour,
-    final discharge authorisation within 3 hours, rejections need claim review committee approval.
+The rules live in one data file, static/rules.json, so the server (this module) and the web app
+(static/engine.js) read exactly the same lists. Nothing here is AI output, so every audit is
+repeatable and explainable.
+
+Sources, checked item by item:
+  - IRDAI circular IRDAI/HLT/REG/CIR/176/09/2019 (27 Sep 2019): List I (items not payable),
+    Lists II, III, IV (items included in room, procedure and treatment charges).
+  - IRDAI circular on proportionate deductions (June 2020): no proportionate deduction on
+    pharmacy and consumables, implants and medical devices, diagnostics, or ICU charges, and none
+    at all when the hospital does not charge differently by room type.
+  - IRDAI Master Circular on Health Insurance Business (29 May 2024): cashless decision within
+    1 hour, final discharge approval within 3 hours, extra hospital charges after that paid by the
+    insurer, rejections only with the Claims Review Committee's approval.
 """
 
+import json
 import re
+from pathlib import Path
 
-CITE_LIST_I = "IRDAI Standardization Guidelines, List I (items not payable)"
-CITE_LIST_II = "IRDAI Standardization Guidelines, List II (subsumed into room charges)"
-CITE_LIST_III = "IRDAI Standardization Guidelines, List III (subsumed into procedure charges)"
-CITE_LIST_IV = "IRDAI Standardization Guidelines, List IV (subsumed into cost of treatment)"
-CITE_PROPORTIONATE = "IRDAI guidance on proportionate deduction (June 2020)"
-CITE_MASTER_2024 = "IRDAI Master Circular on Health Insurance (29 May 2024)"
+RULES_FILE = Path(__file__).resolve().parent.parent / "static" / "rules.json"
+DATA = json.loads(RULES_FILE.read_text(encoding="utf-8"))
 
-# List I: not payable at all (unless the policy has a consumables add-on).
-LIST_I = [
-    "baby food", "baby utilit*", "beauty", "belt", "brace", "buds", "cold pack", "hot pack",
-    "carry bag", "email", "internet", "leggings", "laundry", "mineral water", "sanitary pad",
-    "telephone", "guest service", "crepe bandage", "diaper", "eyelet collar", "sling",
-    "television", "tv charge", "surcharge", "attendant", "extra diet", "birth certificate",
-    "certificate charge", "courier", "conveyance", "medical certificate", "medical record",
-    "photocop*", "mortuary", "walking aid", "spacer", "spirometer", "nebulizer kit", "nebuliser kit",
-    "steam inhaler", "thermometer", "cervical collar", "splint", "diabetic foot", "knee immobil*",
-    "lumbo sacral", "air bed", "water bed", "private nurse", "sugar free", "cream", "powder",
-    "lotion", "toiletr*", "ecg electrode", "glove", "kidney tray", "mask", "ounce glass",
-    "pelvic traction", "pan can", "trolley cover", "urometer", "urine jug", "food charge",
-    "visitor", "registration fee for donor",
-]
-
-# List II: part of room charges, should not be billed separately.
-LIST_II = [
-    "hand wash", "shoe cover", "cap", "cradle", "comb", "eau-de-cologne", "foot cover", "gown",
-    "slipper", "tissue", "tooth paste", "toothpaste", "tooth brush", "toothbrush", "bed pan",
-    "sputum cup", "disinfectant lotion", "luxury tax", "hvac", "housekeeping", "house keeping",
-    "air condition*", "clean sheet", "blanket", "admission kit", "diabetic chart",
-    "documentation charge", "discharge procedure", "daily chart", "entrance pass", "file opening",
-    "incidental", "misc*", "name tag", "identification band", "pulse oximeter", "pulseoxymeter",
-]
-
-# List III: part of procedure / surgery charges.
-LIST_III = [
-    "hair removal", "razor", "eye pad", "eye shield", "camera cover", "dvd", "cd charge",
-    "gauze", "theatre booking", "ward booking", "microscope cover", "surgical blade",
-    "harmonic scalpel", "shaver", "surgical drill", "eye kit", "eye drape", "x-ray film",
-    "boyles apparatus", "cotton", "surgical tape", "apron", "tourniquet", "torniquet",
-    "orthobundle", "gynaec bundle",
-]
-
-# List IV: part of cost of treatment.
-LIST_IV = [
-    "admission charge", "registration charge", "urine container", "blood reservation",
-    "ante natal booking", "bipap", "cpap", "infusion pump", "hydrogen peroxide", "spirit",
-    "nutrition planning", "dietician", "diet charge", "hiv kit", "mouthwash", "lozenge",
-    "mouth paint", "vaccination", "alcohol swab", "scrub solution", "sterillium", "glucometer",
-    "urine bag",
-]
-
-# Bill categories. Only "associated medical expenses" get proportionate deduction.
-CATEGORIES = [
-    "room", "icu", "doctor", "nursing", "procedure", "pharmacy", "consumables", "implants",
-    "diagnostics", "other",
-]
-ASSOCIATED_EXPENSES = {"doctor", "nursing", "procedure", "other"}
-NO_PROPORTIONATE = {"pharmacy", "consumables", "implants", "diagnostics", "icu"}
-
-CATEGORY_KEYWORDS = {
-    "icu": ["icu", "iccu", "nicu", "picu", "intensive care", "hdu", "ccu"],
-    "room": ["room", "ward", "bed charge", "accommodation", "boarding"],
-    "doctor": ["consult*", "doctor", "physician", "visit", "specialist", "anaesthetist", "anesthetist", "rmo", "professional fee"],
-    "nursing": ["nursing"],
-    "procedure": ["surgeon", "surgery", "operation", "ot charge", "theatre", "procedure",
-                  "anaesthesia", "anesthesia", "package"],
-    "implants": ["implant", "stent", "lens", "iol", "prosthe*", "pacemaker", "plate", "screw"],
-    "diagnostics": ["lab", "test", "x-ray", "xray", "scan", "mri", "ct", "ultrasound", "usg",
-                    "ecg", "echo", "blood", "patholog*", "radiolog*", "culture", "cbc"],
-    "pharmacy": ["pharmacy", "medicine", "drug", "tablet", "injection", "inj", "iv fluid",
-                 "antibiotic", "syrup"],
-    "consumables": ["consumable", "syringe", "cannula", "catheter", "dressing", "suture",
-                    "bandage", "disposable"],
+CITES = {
+    "R_LIST_I": "IRDAI List I, items insurers do not pay (circular dated 27 Sep 2019)",
+    "R_LIST_II": "IRDAI List II, items included in room charges (circular dated 27 Sep 2019)",
+    "R_LIST_III": "IRDAI List III, items included in procedure charges (circular dated 27 Sep 2019)",
+    "R_LIST_IV": "IRDAI List IV, items included in the cost of treatment (circular dated 27 Sep 2019)",
+    "R_PD": "IRDAI rules on proportionate deduction (June 2020)",
+    "R_POLICY_ROOM": "Your policy's room rent limit",
+    "R_POLICY_ICU": "Your policy's ICU limit",
+    "R_POLICY_PD": "Your policy's proportionate deduction clause",
 }
+CITE_MASTER_2024 = "IRDAI Master Circular on Health Insurance Business (29 May 2024)"
 
-LISTS = [
-    ("list_i", LIST_I, CITE_LIST_I),
-    ("list_ii", LIST_II, CITE_LIST_II),
-    ("list_iii", LIST_III, CITE_LIST_III),
-    ("list_iv", LIST_IV, CITE_LIST_IV),
-]
+CATEGORIES = DATA["categories"]
+ASSOCIATED_EXPENSES = set(DATA["associated"])
+NO_PROPORTIONATE = set(DATA["no_pd"])
 
 
-def _kw_regex(w):
-    """Whole-word match by default; a trailing '*' means prefix match (e.g. 'photocop*')."""
-    if w.endswith("*"):
-        return re.compile(r"\b" + re.escape(w[:-1]))
-    return re.compile(r"\b" + re.escape(w) + r"s?\b")
+def _term_regex(term):
+    """Whole word match with an optional plural s. A trailing * means prefix match."""
+    if isinstance(term, dict):
+        return re.compile(term["re"], re.I), term["w"], term.get("label", term["re"])
+    if term.endswith("*"):
+        return re.compile(r"\b" + re.escape(term[:-1]), re.I), len(term) - 1, term[:-1]
+    return re.compile(r"\b" + re.escape(term) + r"s?\b", re.I), len(term), term
 
 
-_LIST_PATTERNS = [(lid, [(w, _kw_regex(w)) for w in words], cite) for lid, words, cite in LISTS]
-_CAT_PATTERNS = {c: [_kw_regex(w) for w in ws] for c, ws in CATEGORY_KEYWORDS.items()}
-_CAT_ORDER = ["icu", "room", "implants", "procedure", "nursing", "doctor", "consumables",
-              "diagnostics", "pharmacy"]
+def _build():
+    entries = []
+    order = 0
+    for group in DATA["groups"]:
+        for term in group["terms"]:
+            rx, weight, label = _term_regex(term)
+            entries.append((weight, order, rx, label, group))
+            order += 1
+    # Longest term first; ties keep file order. Must match static/engine.js exactly.
+    entries.sort(key=lambda e: (-e[0], e[1]))
+    return entries
 
 
-def match_irdai_list(description):
-    """Return (list_id, keyword, citation) if the item is on an IRDAI list, else None."""
-    d = description.lower()
-    for list_id, pats, cite in _LIST_PATTERNS:
-        for w, rx in pats:
-            if rx.search(d):
-                return list_id, w.rstrip("*"), cite
+_ENTRIES = _build()
+_CAT_PATTERNS = {c: [_term_regex(w)[0] for w in ws] for c, ws in DATA["category_keywords"].items()}
+_CAT_ORDER = DATA["category_order"]
+
+
+def match(description):
+    """Return (group, matched_term) for the first IRDAI list entry that fits, else None."""
+    for _, _, rx, label, group in _ENTRIES:
+        if rx.search(description):
+            return group, label
     return None
 
 
+def match_irdai_list(description):
+    """Backwards compatible helper: (list_id, term, citation) or None."""
+    hit = match(description)
+    if not hit:
+        return None
+    group, label = hit
+    return group["id"], label, CITES[group["rule"]]
+
+
 def guess_category(description):
-    d = description.lower()
     for cat in _CAT_ORDER:
-        if any(rx.search(d) for rx in _CAT_PATTERNS[cat]):
+        if any(rx.search(description) for rx in _CAT_PATTERNS[cat]):
             return cat
     return "other"

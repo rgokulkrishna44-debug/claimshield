@@ -4,3 +4,4 @@ anthropic>=1.11
 pypdf>=5.0
 python-multipart>=0.0.9
 pydantic>=2.7
+httpx2>=2.0  # anthropic 1.x is built on httpx2; app/translate.py imports it directly

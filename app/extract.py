@@ -1,6 +1,8 @@
 """Reading documents: policy PDFs, hospital bills, rejection letters.
 
-Each function tries Claude first and falls back to plain text parsing, so the demo never breaks.
+Each function tries Claude first and falls back to plain text parsing, so it never breaks at the
+counter. Before anything goes to the AI, text is masked (app/privacy.py): a PDF with a text layer
+is sent as masked text, not as the file. Only photos and scanned PDFs go as images.
 """
 
 import io
@@ -8,7 +10,7 @@ import re
 
 from pypdf import PdfReader
 
-from . import llm, rules
+from . import llm, privacy, rules
 from .engine import Bill, BillItem, Policy
 
 NUM_OR_NULL = {"anyOf": [{"type": "number"}, {"type": "null"}]}
@@ -68,8 +70,14 @@ def pdf_text(data: bytes) -> str:
 
 def _content_for(data: bytes, mime: str, text_hint: str):
     if mime in ("text/plain", "text/csv"):
-        return [{"type": "text", "text": data.decode("utf-8", "ignore")}, {"type": "text", "text": text_hint}]
-    return [llm.file_block(data, mime), {"type": "text", "text": text_hint}]
+        text = data.decode("utf-8", "ignore")
+    elif mime == "application/pdf":
+        text = pdf_text(data)
+        if len(text.strip()) < 200:  # scanned PDF, no text layer: the model has to see the pages
+            return [llm.file_block(data, mime), {"type": "text", "text": text_hint}]
+    else:
+        return [llm.file_block(data, mime), {"type": "text", "text": text_hint}]
+    return [{"type": "text", "text": privacy.mask_text(text)}, {"type": "text", "text": text_hint}]
 
 
 # ---------- Policy ----------
@@ -139,19 +147,26 @@ def extract_bill(data: bytes, mime: str):
         return bill_from_text(text), False
 
 
-LINE_RX = re.compile(r"^\s*(.+?)[\s:|,-]+(?:rs\.?|₹|inr)?\s*([\d,]+(?:\.\d{1,2})?)\s*$", re.I)
-DAYS_RX = re.compile(r"(\d+)\s*(?:days?|nights?)", re.I)
-SKIP_RX = re.compile(r"\b(total|sub ?total|grand total|discount|gst|tax|advance|balance|net payable|bill no|uhid|ip no)\b", re.I)
+LINE_RX = re.compile(r"^\s*(.+?)[\s:|,]+(?:rs\.?|₹|inr)?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:/-)?\s*$", re.I)
+DAYS_RX = re.compile(r"(\d+)\s*(?:days?|nights?)\b", re.I)
+SKIP_RX = re.compile(r"\b(total|sub ?total|grand total|discount|gst|cgst|sgst|tax|advance|deposit|balance|net payable|"
+                     r"amount payable|amount due|bill no|bill date|uhid|ip no|mrn|reg no|page)\b", re.I)
 
 
 def bill_from_text(text: str) -> Bill:
+    """Same rules as static/read.js parseBill, so the phone and the server read a bill alike."""
     items = []
-    for line in text.splitlines():
-        m = LINE_RX.match(line)
-        if not m or SKIP_RX.search(line):
+    for raw in text.splitlines():
+        line = " ".join(raw.split())
+        if not line or SKIP_RX.search(line):
             continue
-        desc, amt = m.group(1).strip(), _money(m.group(2))
-        if amt <= 0 or len(desc) < 3:
+        m = LINE_RX.match(line)
+        if not m:
+            continue
+        desc = re.sub(r"(\s+[\d,.]+)+$", "", m.group(1))
+        desc = re.sub(r"^\d+[.)]\s*", "", desc).strip()
+        amt = _money(m.group(2))
+        if amt <= 0 or len(desc) < 3 or not re.search(r"[a-z]", desc, re.I):
             continue
         d = DAYS_RX.search(desc)
         items.append(BillItem(description=desc, amount=amt, days=int(d.group(1)) if d else None))
@@ -214,31 +229,67 @@ def analyze_rejection(letter: bytes, letter_mime: str, policy_text: str, years_i
         return _rejection_heuristic(text, years_insured), False
 
 
+GROUNDS = {
+    "G_MORATORIUM": "You have been insured for more than 5 years without a break. Under IRDAI's moratorium rule, the insurer can't reject a claim for something not disclosed unless it proves fraud.",
+    "G_ND_ASK": "Ask the insurer to show exactly which proposal form question was answered wrongly, and the medical proof it relies on.",
+    "G_PED_CAP": "IRDAI caps the waiting period for illnesses you had before the policy at 36 months. If you are past that, this reason no longer applies.",
+    "G_PED_PROOF": "Ask for the medical proof that the illness existed before the policy started.",
+    "G_WAITING_PORT": "Check the policy start date and any credit from an earlier policy you ported. Waiting periods count from your first policy if you ported.",
+    "G_DOCTOR": "Attach your treating doctor's letter explaining why admission was needed. The Ombudsman gives weight to the treating doctor.",
+    "G_DAYCARE": "Day care treatments don't need 24 hours in hospital. Check if your treatment is listed as day care in your policy.",
+    "G_DOCS": "IRDAI's 2024 rules say a claim shouldn't be rejected only because a document is missing. Send it and ask them to reopen the claim.",
+    "G_LATE": "IRDAI's 2024 rules say a claim shouldn't be rejected only because it was reported late.",
+    "G_PD": "IRDAI doesn't allow a room cut on medicines, consumables, implants, tests or ICU, and allows none at all if the hospital charges the same for every room.",
+    "G_CRC": "Every rejection needs approval from the insurer's Claims Review Committee and must quote the exact policy clause. Ask for both in writing.",
+}
+
+
+def _has(t, words):
+    return any(w in t for w in words)
+
+
 def _rejection_heuristic(text, years):
+    """Same rules, same order, same wording as static/reject.js."""
     t = text.lower()
-    m = re.search(r"reason\s*[:\-]\s*(.+?)(?:\n\s*\n|$)", text, re.I | re.S)
+    years = float(years or 0)
+    m = re.search(r"reason\s*[:\-]\s*([\s\S]+?)(?:\n\s*\n|$)", text, re.I)
     reason = " ".join((m.group(1) if m else text).split())[:400]
-    out = {"insurer_reason": reason, "reason_type": "other", "challengeable": True,
-           "strength": "medium", "grounds": [], "policy_clauses_cited": [],
-           "documents_to_attach": ["Rejection letter", "Policy schedule", "Discharge summary", "Final hospital bill"]}
-    if "non-disclosure" in t or "non disclosure" in t or "suppression" in t:
-        out["reason_type"] = "non_disclosure"
+    codes, strength, kind = [], "medium", "other"
+    mentions_ped = _has(t, ["pre-existing", "pre existing", "preexisting"]) or re.search(r"\bped\b", t)
+    if _has(t, ["non-disclosure", "non disclosure", "nondisclosure", "suppression", "not disclosed", "concealment", "misrepresentation"]):
+        kind = "non_disclosure"
         if years >= 5:
-            out.update(strength="strong", grounds=["You have more than 60 months of continuous cover. Under IRDAI's moratorium rule, the insurer cannot reject for non-disclosure unless it proves fraud."])
+            strength = "strong"
+            codes.append("G_MORATORIUM")
         else:
-            out["grounds"] = ["Ask the insurer to show which question in the proposal form was answered wrongly, and the medical evidence it relies on."]
-    elif "pre-existing" in t or re.search(r"\bped\b", t):
-        out["reason_type"] = "pre_existing_disease"
-        out["grounds"] = ["IRDAI caps the pre-existing disease waiting period at 36 months. If you are past that, the exclusion no longer applies.",
-                          "Ask for the medical evidence that the condition existed before the policy started."]
+            codes.append("G_ND_ASK")
+        if mentions_ped and years >= 3:
+            codes.append("G_PED_CAP")
+    elif mentions_ped:
+        kind = "pre_existing_disease"
+        if years >= 3:
+            strength = "strong"
+        codes += ["G_PED_CAP", "G_PED_PROOF"]
     elif "waiting period" in t:
-        out["reason_type"] = "waiting_period"
-        out["grounds"] = ["Check the policy start date and any portability credit from an earlier policy. Waiting periods count from your first policy if you ported."]
-    elif "not medically necessary" in t or "could have been treated" in t or "opd" in t:
-        out["reason_type"] = "not_medically_necessary"
-        out["grounds"] = ["Attach the treating doctor's certificate explaining why hospitalisation was needed. The treating doctor's opinion carries weight with the Ombudsman."]
-    elif "document" in t:
-        out["reason_type"] = "documents_missing"
-        out.update(strength="strong", grounds=["Submit the missing documents and ask for re-assessment. A claim should not be closed only for documents that can still be provided."])
-    out["grounds"].append("Under the IRDAI Master Circular (2024), every rejection must be approved by the insurer's claim review committee and the reason given in writing. Ask for a copy of that decision.")
-    return out
+        kind = "waiting_period"
+        codes.append("G_WAITING_PORT")
+    elif _has(t, ["24 hours", "less than 24", "day care", "daycare"]):
+        kind = "day_care"
+        codes.append("G_DAYCARE")
+    elif _has(t, ["not medically necessary", "could have been treated", "opd", "outpatient", "out patient", "no active treatment"]):
+        kind = "not_medically_necessary"
+        codes.append("G_DOCTOR")
+    elif _has(t, ["document", "papers", "not submitted"]):
+        kind, strength = "documents_missing", "strong"
+        codes.append("G_DOCS")
+    elif _has(t, ["intimation", "intimated", "informed late", "late notice"]):
+        kind, strength = "late_intimation", "strong"
+        codes.append("G_LATE")
+    elif _has(t, ["room rent", "proportionate", "deduction"]):
+        kind = "room_rent_or_deduction"
+        codes.append("G_PD")
+    codes.append("G_CRC")
+    return {"insurer_reason": reason, "reason_type": kind, "challengeable": True, "strength": strength,
+            "grounds": [GROUNDS[c] for c in codes], "ground_codes": codes, "policy_clauses_cited": [],
+            "documents_to_attach": ["The insurer's rejection letter", "Policy schedule", "Discharge summary",
+                                    "Final hospital bill and payment receipts"]}

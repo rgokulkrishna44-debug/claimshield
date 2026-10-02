@@ -14,13 +14,13 @@ from pydantic import BaseModel
 from samples import demo
 
 from . import extract, grievance, llm, translate
-from .engine import Bill, Policy, audit
+from .engine import Bill, BillItem, Policy, audit, room_options
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_UPLOAD = 20 * 1024 * 1024
 ALLOWED = {"application/pdf", "image/png", "image/jpeg", "image/webp", "text/plain"}
 
-app = FastAPI(title="ClaimShield", version="0.1.0")
+app = FastAPI(title="ClaimShield", version="1.0.0")
 
 # In-memory policy store for the demo. Swap for a database before real users.
 POLICIES = {}
@@ -66,7 +66,7 @@ async def policy_upload(file: UploadFile = File(...)):
     data, mime = await _read(file)
     policy, clauses, text, used_ai = extract.extract_policy(data, mime)
     pid = _store(policy, clauses, text)
-    return {"policy_id": pid, "policy": policy, "clauses": clauses, "used_ai": used_ai}
+    return {"policy_id": pid, "policy": policy, "clauses": clauses, "used_ai": used_ai, "text": text}
 
 
 class Ask(BaseModel):
@@ -122,6 +122,20 @@ def run_audit(body: AuditRequest):
         text, engine = translate.translate("\n".join(result.summary), body.lang)
         out["summary_translated"] = {"text": text, "engine": engine}
     return out
+
+
+class RoomRequest(BaseModel):
+    policy: Policy
+    items: list[BillItem]
+    rents: list[float]
+    days: int = 3
+    differential_billing: bool = True
+
+
+@app.post("/api/room-options")
+def rooms(body: RoomRequest):
+    """What the family pays for the same treatment in each room. items exclude the room itself."""
+    return room_options(body.policy, body.items, body.rents, body.days, body.differential_billing)
 
 
 # ---------- Rejection ----------
