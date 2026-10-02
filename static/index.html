@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ClaimShield</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="logo">🛡️</span>
+    <div>
+      <h1>ClaimShield</h1>
+      <p>Know what your health insurance will really pay, before you pay the hospital.</p>
+    </div>
+  </div>
+  <div class="controls">
+    <label>Language
+      <select id="lang"></select>
+    </label>
+    <span id="ai-status" class="pill">checking…</span>
+  </div>
+</header>
+
+<nav>
+  <button class="tab active" data-tab="policy">1. Know your policy</button>
+  <button class="tab" data-tab="bill">2. Check discharge bill</button>
+  <button class="tab" data-tab="reject">3. Fight a rejection</button>
+</nav>
+
+<main>
+  <!-- POLICY -->
+  <section id="policy" class="panel active">
+    <div class="card">
+      <h2>Load your policy</h2>
+      <p class="muted">Upload the policy PDF (or a photo of the schedule). We pull out the limits that decide your payout.</p>
+      <div class="row">
+        <input type="file" id="policy-file" accept=".pdf,image/*,.txt">
+        <button id="policy-upload">Read policy</button>
+        <button class="ghost" id="policy-demo">Use demo policy</button>
+      </div>
+    </div>
+
+    <div id="policy-out" class="hidden">
+      <div class="card">
+        <h2 id="policy-title"></h2>
+        <div class="grid" id="policy-terms"></div>
+        <p class="muted small">Wrong number? Edit it here. The bill check uses these values.</p>
+      </div>
+      <div class="card">
+        <h2>What your policy actually says</h2>
+        <div id="clauses"></div>
+      </div>
+      <div class="card">
+        <h2>Ask anything about your policy</h2>
+        <div class="row">
+          <input id="question" placeholder="Is knee surgery covered? Is there a room rent limit?">
+          <button id="ask">Ask</button>
+        </div>
+        <div id="answer" class="answer hidden"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BILL -->
+  <section id="bill" class="panel">
+    <div class="card warn hidden" id="need-policy">Load a policy in step 1 first.</div>
+
+    <div class="card timer-card">
+      <div>
+        <h2>Discharge timer</h2>
+        <p class="muted small">IRDAI Master Circular (2024): the insurer must give final discharge approval within 3 hours of the hospital's request. Delays beyond that are the insurer's cost, not yours.</p>
+      </div>
+      <div class="timer">
+        <span id="timer-display">3:00:00</span>
+        <button id="timer-start">Hospital sent discharge request</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Hospital bill</h2>
+      <div class="row">
+        <input type="file" id="bill-file" accept=".pdf,image/*,.txt">
+        <button id="bill-upload">Read bill</button>
+        <button class="ghost" id="bill-demo">Use demo bill</button>
+      </div>
+      <div class="row small">
+        <label>Treatment <input id="treatment" placeholder="e.g. cataract surgery"></label>
+        <label class="check"><input type="checkbox" id="diff-billing" checked> Hospital charges more for costlier rooms</label>
+      </div>
+      <table class="items">
+        <thead><tr><th>Charge</th><th>Days</th><th>Amount (₹)</th><th></th></tr></thead>
+        <tbody id="bill-rows"></tbody>
+      </table>
+      <div class="row">
+        <button class="ghost" id="add-row">+ Add line</button>
+        <button id="run-audit" class="primary">Check what insurance will pay</button>
+      </div>
+    </div>
+
+    <div id="audit-out" class="hidden">
+      <div class="stats">
+        <div class="stat"><span>Total bill</span><b id="s-total"></b></div>
+        <div class="stat good"><span>Insurer will pay</span><b id="s-ins"></b></div>
+        <div class="stat bad"><span>You will pay</span><b id="s-you"></b></div>
+        <div class="stat amber"><span>Ask hospital to remove</span><b id="s-chal"></b></div>
+      </div>
+      <div class="card">
+        <h2>What this means</h2>
+        <ul id="summary"></ul>
+        <div id="summary-tr" class="answer hidden"></div>
+      </div>
+      <div class="card">
+        <h2>Line by line</h2>
+        <table class="audit">
+          <thead><tr><th>Charge</th><th>Billed</th><th>Insurer pays</th><th>Cut</th><th>Why</th></tr></thead>
+          <tbody id="audit-rows"></tbody>
+        </table>
+        <p class="muted small">Every number is calculated by fixed IRDAI rules and your policy terms, not guessed by AI.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- REJECTION -->
+  <section id="reject" class="panel">
+    <div class="card warn hidden" id="need-policy-2">Load a policy in step 1 first.</div>
+    <div class="card">
+      <h2>Was your claim rejected or cut?</h2>
+      <p class="muted">Upload the insurer's letter or paste it. We check it against your policy and IRDAI rules, then write your complaint.</p>
+      <div class="row">
+        <input type="file" id="rej-file" accept=".pdf,image/*,.txt">
+        <button class="ghost" id="rej-demo">Use demo letter</button>
+      </div>
+      <textarea id="rej-text" rows="6" placeholder="Or paste the rejection letter here"></textarea>
+      <div class="grid">
+        <label>Years continuously insured <input type="number" id="years" value="0" min="0" step="0.5"></label>
+        <label>Your name <input id="d-name"></label>
+        <label>Patient name <input id="d-patient"></label>
+        <label>Policy number <input id="d-policy"></label>
+        <label>Claim number <input id="d-claim"></label>
+        <label>Hospital <input id="d-hospital"></label>
+        <label>Amount disputed (₹) <input type="number" id="d-amount"></label>
+        <label>Phone <input id="d-phone"></label>
+      </div>
+      <button id="rej-run" class="primary">Check rejection</button>
+    </div>
+
+    <div id="rej-out" class="hidden">
+      <div class="card" id="verdict"></div>
+      <div class="card">
+        <h2>Your complaint letter</h2>
+        <textarea id="letter" rows="18"></textarea>
+        <div class="row"><button id="copy-letter">Copy letter</button><button class="ghost" id="tr-letter">Translate</button></div>
+        <div id="letter-tr" class="answer hidden"></div>
+      </div>
+      <div class="card">
+        <h2>Where to send it, in order</h2>
+        <ol id="timeline" class="timeline"></ol>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="muted small">
+  ClaimShield explains your policy and drafts letters. It is not legal advice. You decide what to send.
+  Rules: IRDAI Health Insurance Master Circular (May 2024), IRDAI standardization lists, Insurance Ombudsman Rules.
+</footer>
+
+<div id="toast" class="toast hidden"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
